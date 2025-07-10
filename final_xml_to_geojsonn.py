@@ -203,6 +203,7 @@ def process_xml_to_geojson(input_file):
                         "type": "section",
                         "relations": [{"objectId": prolet} for prolet in prolets]
                     }
+                    'geometry': None
                 })
 
     # Добавление валидных ЛЭП
@@ -220,6 +221,7 @@ def process_xml_to_geojson(input_file):
                     "type": "power_line",
                     "relations": [{"objectId": uchastok} for uchastok in uchastki]
                 }
+                'geometry': None
             })
 
     logging.info("Сгенерировано %d features", len(features))
