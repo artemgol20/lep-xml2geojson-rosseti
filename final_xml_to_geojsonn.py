@@ -202,7 +202,7 @@ def process_xml_to_geojson(input_file):
                         "name": uchastok_name,
                         "type": "section",
                         "relations": [{"objectId": prolet} for prolet in prolets]
-                    }
+                    },
                     'geometry': None
                 })
 
@@ -220,7 +220,7 @@ def process_xml_to_geojson(input_file):
                     "name": lep_name,
                     "type": "power_line",
                     "relations": [{"objectId": uchastok} for uchastok in uchastki]
-                }
+                },
                 'geometry': None
             })
 
