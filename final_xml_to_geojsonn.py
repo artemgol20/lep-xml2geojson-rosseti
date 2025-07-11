@@ -34,8 +34,33 @@ def extract_coordinates(static_params):
                 lon = float(value.replace('E', '').replace('W', '-'))
     return lat, lon
 
+# Функция для парсинга классов напряжения
+def parse_voltage_classes(voltage_file):
+    try:
+        tree = ET.parse(voltage_file)
+        root = tree.getroot()
+        voltage_classes = {}
+        for row in root.findall('.//row'):
+            ref = get_text(row, 'ref')
+            name = get_text(row, 'name')
+            voltage = get_text(row, 'voltage')
+            if ref and name and voltage:
+                voltage_classes[ref] = {'name': name, 'voltage': float(voltage)}
+        logging.info("Спарсено %d классов напряжения из '%s'", len(voltage_classes), voltage_file)
+        return voltage_classes
+    except FileNotFoundError:
+        logging.error("Файл '%s' не найден.", voltage_file)
+        return {}
+    except ET.ParseError:
+        logging.error("Ошибка парсинга '%s'.", voltage_file)
+        return {}
+
 # Основная функция для обработки XML и создания GeoJSON
-def process_xml_to_geojson(input_file):
+def process_xml_to_geojson(input_file, voltage_file='Классы напряжения.xml', output_file='output.geojson', log_file='missing_coordinates.log'):
+    # Парсинг классов напряжения
+    voltage_classes = parse_voltage_classes(voltage_file)
+
+    # Парсинг основного XML файла
     try:
         tree = ET.parse(input_file)
         root = tree.getroot()
@@ -46,13 +71,11 @@ def process_xml_to_geojson(input_file):
         logging.error("Ошибка парсинга '%s'.", input_file)
         return
 
-    # Словарь для хранения объектов по их Ref
+    # Словарь объектов по Ref
     objects_by_ref = {get_text(obj, 'Ref'): obj for obj in root.findall('.//CatalogObject.урскСтруктураСети') if get_text(obj, 'Ref')}
     logging.info("Спарсено %d объектов из '%s'", len(objects_by_ref), input_file)
-    with open('objects_by_ref.json', 'w', encoding='utf-8') as f:
-        json.dump({ref: {'Description': get_text(obj, 'Description'), 'ВидТехническогоМеста': get_text(obj, 'ВидТехническогоМеста')} for ref, obj in objects_by_ref.items()}, f, indent=2, ensure_ascii=False)
 
-    # Разделение объектов по категориям
+    # Категоризация объектов
     lep_objects = {}
     uchastok_objects = defaultdict(list)
     prolet_objects = defaultdict(list)
@@ -73,29 +96,31 @@ def process_xml_to_geojson(input_file):
         elif vid_teh_mesta == GUID_OPORA:
             opora_objects[ref] = obj
 
-    logging.info("Найдено %d ЛЭП, %d участков, %d пролетов, %d опор", len(lep_objects), sum(len(v) for v in uchastok_objects.values()), sum(len(v) for v in prolet_objects.values()), len(opora_objects))
-    with open('categorized_objects.json', 'w', encoding='utf-8') as f:
-        json.dump({
-            'lep_objects': list(lep_objects.keys()),
-            'uchastok_objects': {k: [get_text(u, 'Ref') for u in v] for k, v in uchastok_objects.items()},
-            'prolet_objects': {k: [get_text(p, 'Ref') for p in v] for k, v in prolet_objects.items()},
-            'opora_objects': list(opora_objects.keys())
-        }, f, indent=2, ensure_ascii=False)
+    logging.info("Найдено %d ЛЭП, %d участков, %d пролетов, %d опор", 
+                 len(lep_objects), sum(len(v) for v in uchastok_objects.values()), 
+                 sum(len(v) for v in prolet_objects.values()), len(opora_objects))
 
     # Фильтрация валидных объектов
-    # 1. Валидные опоры (только с координатами)
     valid_supports = set()
+    missing_coords_supports = []
     for opora_ref, opora_obj in opora_objects.items():
         coords = extract_coordinates(opora_obj.find('СтатическиеХарактеристики'))
         if coords and all(coords):
             valid_supports.add(opora_ref)
+        else:
+            opora_name = get_text(opora_obj, 'Description')
+            missing_coords_supports.append((opora_ref, opora_name))
     logging.info("Найдено %d валидных опор с координатами", len(valid_supports))
-    with open('valid_supports.json', 'w', encoding='utf-8') as f:
-        json.dump(list(valid_supports), f, indent=2)
 
-    # 2. Валидные пролеты (только с опорами, у которых есть координаты)
+    # Запись в лог-файл опор без координат
+    with open(log_file, 'w', encoding='utf-8') as f:
+        for ref, name in missing_coords_supports:
+            f.write(f"Опора '{name}' (Ref: {ref}) не имеет координат и не будет добавлена в GeoJSON.\n")
+    logging.info("Обнаружено %d опор без координат, записано в '%s'", len(missing_coords_supports), log_file)
+
+    # Валидные пролеты
     valid_spans = set()
-    for uchastok_ref, prolets in prolet_objects.items():
+    for ref, prolets in prolet_objects.items():
         for prolet in prolets:
             prolet_ref = get_text(prolet, 'Ref')
             nach_opora_ref = get_text(prolet, 'НачальнаяОпора')
@@ -103,53 +128,55 @@ def process_xml_to_geojson(input_file):
             if nach_opora_ref in valid_supports and kon_opora_ref in valid_supports:
                 valid_spans.add(prolet_ref)
     logging.info("Найдено %d валидных пролетов", len(valid_spans))
-    with open('valid_spans.json', 'w', encoding='utf-8') as f:
-        json.dump(list(valid_spans), f, indent=2)
 
-    # 3. Валидные участки (только с хотя бы одним валидным пролетом)
+    # Валидные участки
     valid_sections = set()
     for uchastok_ref, prolets in prolet_objects.items():
         if any(get_text(prolet, 'Ref') in valid_spans for prolet in prolets):
             valid_sections.add(uchastok_ref)
     logging.info("Найдено %d валидных участков", len(valid_sections))
-    with open('valid_sections.json', 'w', encoding='utf-8') as f:
-        json.dump(list(valid_sections), f, indent=2)
 
-    # 4. Валидные ЛЭП (только с хотя бы одним валидным участком)
+    # Валидные ЛЭП
     valid_power_lines = set()
     for lep_ref, lep_obj in lep_objects.items():
         lep_guid = get_text(lep_obj, 'гуид')
         if lep_guid and lep_guid != '00000000-0000-0000-0000-000000000000':
-            uchastki = [get_text(uchastok, 'Ref') for uchastok in uchastok_objects.get(lep_guid, []) if get_text(uchastok, 'Ref') in valid_sections]
+            uchastki = [get_text(u, 'Ref') for u in uchastok_objects.get(lep_guid, []) if get_text(u, 'Ref') in valid_sections]
             if uchastki:
                 valid_power_lines.add(lep_ref)
     logging.info("Найдено %d валидных ЛЭП", len(valid_power_lines))
-    with open('valid_power_lines.json', 'w', encoding='utf-8') as f:
-        json.dump(list(valid_power_lines), f, indent=2)
 
-    # Построение GeoJSON features
+    # Создание GeoJSON features
     features = []
 
-    # Добавление валидных опор
+    # Функция для получения свойств объекта
+    def get_properties(obj, obj_type, ref, relations=None):
+        properties = {
+            "ref": ref,
+            "type": obj_type,
+            "IdDZO": get_text(obj, 'КодОбъекта'),
+            "name": get_text(obj, 'Description'),
+            "filial": get_text(obj, 'Филиал'),
+            "responsible": get_text(obj, 'Ответственный'),
+            "relations": relations if relations is not None else []
+        }
+        voltage_ref = get_text(obj, 'КлассНапряжения')
+        if voltage_ref in voltage_classes:
+            properties["voltage"] = voltage_classes[voltage_ref]['voltage']
+            properties["voltageclass"] = voltage_classes[voltage_ref]['name']
+        return properties
+
+    # Опоры (с пустым relations)
     for opora_ref in valid_supports:
         opora_obj = opora_objects[opora_ref]
-        opora_name = get_text(opora_obj, 'Description')
         coords = extract_coordinates(opora_obj.find('СтатическиеХарактеристики'))
         features.append({
             "type": "Feature",
-            "properties": {
-                "ref": opora_ref,
-                "name": opora_name,
-                "type": "pylons"
-            },
-            "geometry": {
-                "type": "Point",
-                "coordinates": [coords[1], coords[0]]  # [lon, lat]
-            }
+            "properties": get_properties(opora_obj, "pylons", opora_ref),
+            "geometry": {"type": "Point", "coordinates": [coords[1], coords[0]]}
         })
-    logging.info("Добавлено %d опор в features", len(valid_supports))
 
-    # Добавление валидных пролетов
+    # Пролеты (с relations на опоры)
     for uchastok_ref, prolets in prolet_objects.items():
         for prolet in prolets:
             prolet_ref = get_text(prolet, 'Ref')
@@ -159,88 +186,57 @@ def process_xml_to_geojson(input_file):
             kon_opora_ref = get_text(prolet, 'КонечнаяОпора')
             nach_opora = opora_objects.get(nach_opora_ref)
             kon_opora = opora_objects.get(kon_opora_ref)
-            if nach_opora is None or kon_opora is None:  # Исправлено для устранения DeprecationWarning
+            if not (nach_opora and kon_opora):
                 continue
             nach_coords = extract_coordinates(nach_opora.find('СтатическиеХарактеристики'))
             kon_coords = extract_coordinates(kon_opora.find('СтатическиеХарактеристики'))
-            if not all(nach_coords) or not all(kon_coords):
+            if not (all(nach_coords) and all(kon_coords)):
                 continue
-            prolet_name = get_text(prolet, 'Description')
+            relations = [{"objectId": nach_opora_ref}, {"objectId": kon_opora_ref}]
             features.append({
                 "type": "Feature",
-                "properties": {
-                    "ref": prolet_ref,
-                    "name": prolet_name,
-                    "type": "span",
-                    "relations": [
-                        {"objectId": nach_opora_ref},
-                        {"objectId": kon_opora_ref}
-                    ]
-                },
+                "properties": get_properties(prolet, "span", prolet_ref, relations),
                 "geometry": {
                     "type": "LineString",
-                    "coordinates": [
-                        [nach_coords[1], nach_coords[0]],
-                        [kon_coords[1], kon_coords[0]]
-                    ]
+                    "coordinates": [[nach_coords[1], nach_coords[0]], [kon_coords[1], kon_coords[0]]]
                 }
             })
 
-    # Добавление валидных участков
+    # Участки (с relations на пролеты)
     for lep_guid, uchastki in uchastok_objects.items():
         for uchastok in uchastki:
             uchastok_ref = get_text(uchastok, 'Ref')
             if uchastok_ref not in valid_sections:
                 continue
-            uchastok_name = get_text(uchastok, 'Description')
-            prolets = [get_text(prolet, 'Ref') for prolet in prolet_objects.get(uchastok_ref, []) if get_text(prolet, 'Ref') in valid_spans]
+            prolets = [get_text(p, 'Ref') for p in prolet_objects.get(uchastok_ref, []) if get_text(p, 'Ref') in valid_spans]
             if prolets:
+                relations = [{"objectId": p} for p in prolets]
                 features.append({
                     "type": "Feature",
-                    "properties": {
-                        "ref": uchastok_ref,
-                        "name": uchastok_name,
-                        "type": "lines",
-                        "relations": [{"objectId": prolet} for prolet in prolets]
-                    },
-                    'geometry': None
+                    "properties": get_properties(uchastok, "lines", uchastok_ref, relations),
+                    "geometry": None
                 })
 
-    # Добавление валидных ЛЭП
+    # ЛЭП (с relations на участки)
     for lep_ref in valid_power_lines:
         lep_obj = lep_objects[lep_ref]
         lep_guid = get_text(lep_obj, 'гуид')
-        lep_name = get_text(lep_obj, 'Description')
-        uchastki = [get_text(uchastok, 'Ref') for uchastok in uchastok_objects.get(lep_guid, []) if get_text(uchastok, 'Ref') in valid_sections]
+        uchastki = [get_text(u, 'Ref') for u in uchastok_objects.get(lep_guid, []) if get_text(u, 'Ref') in valid_sections]
         if uchastki:
+            relations = [{"objectId": u} for u in uchastki]
             features.append({
                 "type": "Feature",
-                "properties": {
-                    "ref": lep_ref,
-                    "name": lep_name,
-                    "type": "fulllines",
-                    "relations": [{"objectId": uchastok} for uchastok in uchastki]
-                },
-                'geometry': None
+                "properties": get_properties(lep_obj, "fulllines", lep_ref, relations),
+                "geometry": None
             })
 
     logging.info("Сгенерировано %d features", len(features))
-    with open('features.json', 'w', encoding='utf-8') as f:
-        json.dump(features, f, indent=2, ensure_ascii=False)
 
-    # Создание GeoJSON
-    geojson = {
-        "type": "FeatureCollection",
-        "features": features
-    }
+    # Создание и запись GeoJSON
+    geojson = {"type": "FeatureCollection", "features": features}
+    with open(output_file, 'w', encoding='utf-8') as f:
+        json.dump(geojson, f, ensure_ascii=False, indent=2)
+    logging.info("GeoJSON записан в '%s' с %d features", output_file, len(features))
 
-    # Запись в файл
-    try:
-        with open('output.geojson', 'w', encoding='utf-8') as f:
-            json.dump(geojson, f, ensure_ascii=False, indent=2)
-        logging.info("Записан GeoJSON в 'output.geojson' с %d features", len(features))
-    except IOError as e:
-        logging.error("Ошибка записи GeoJSON: %s", e)
-
-if __name__ == '__main__':
-    process_xml_to_geojson('ЛЭП.xml')  # Укажите путь к вашему XML-файлу
+if __name__ == "__main__":
+    process_xml_to_geojson('ЛЭП.xml')
