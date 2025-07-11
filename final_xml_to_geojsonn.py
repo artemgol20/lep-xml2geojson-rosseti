@@ -140,7 +140,7 @@ def process_xml_to_geojson(input_file):
             "properties": {
                 "ref": opora_ref,
                 "name": opora_name,
-                "type": "support"
+                "type": "pylons"
             },
             "geometry": {
                 "type": "Point",
@@ -200,7 +200,7 @@ def process_xml_to_geojson(input_file):
                     "properties": {
                         "ref": uchastok_ref,
                         "name": uchastok_name,
-                        "type": "section",
+                        "type": "lines",
                         "relations": [{"objectId": prolet} for prolet in prolets]
                     },
                     'geometry': None
@@ -218,7 +218,7 @@ def process_xml_to_geojson(input_file):
                 "properties": {
                     "ref": lep_ref,
                     "name": lep_name,
-                    "type": "power_line",
+                    "type": "fulllines",
                     "relations": [{"objectId": uchastok} for uchastok in uchastki]
                 },
                 'geometry': None
