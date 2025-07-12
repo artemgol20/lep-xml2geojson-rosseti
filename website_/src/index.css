@@ -192,6 +192,11 @@ button:hover, .btn:hover {
   background: var(--card-bg) !important;
 }
 
+body.dark-theme .leaflet-popup-content-wrapper {
+  background: var(--card-bg) !important;
+  color: #fff !important;
+}
+
 input[type="color"] {
   border: none;
   background: none;
@@ -223,4 +228,13 @@ input[type="color"]:hover {
 }
 @keyframes markerFadeIn {
   to { opacity: 1; }
+}
+
+.marker-highlight > img.leaflet-marker-icon {
+  animation: markerPulse 0.5s alternate infinite;
+  filter: drop-shadow(0 0 8px #f59e42) brightness(1.5);
+}
+@keyframes markerPulse {
+  0% { transform: scale(1); filter: drop-shadow(0 0 8px #f59e42) brightness(1.5); }
+  100% { transform: scale(1.25); filter: drop-shadow(0 0 16px #f59e42) brightness(2); }
 } 
