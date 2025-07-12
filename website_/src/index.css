@@ -1,0 +1,7 @@
+.leaflet-bottom.leaflet-right {
+  display: none !important;
+}
+
+.leaflet-control-attribution {
+  display: none !important;
+} 
