@@ -40,12 +40,16 @@ def parse_voltage_classes(voltage_file):
         tree = ET.parse(voltage_file)
         root = tree.getroot()
         voltage_classes = {}
-        for row in root.findall('.//row'):
-            ref = get_text(row, 'ref')
-            name = get_text(row, 'name')
-            voltage = get_text(row, 'voltage')
+        for row in root.findall('.//CatalogObject.урскКлассыНапряжений'):
+            ref = get_text(row, 'Ref')
+            name = get_text(row, 'Description')
+            voltage = get_text(row, 'Значение')
             if ref and name and voltage:
-                voltage_classes[ref] = {'name': name, 'voltage': float(voltage)}
+                try:
+                    voltage_value = float(str(voltage).replace(',', '.'))
+                except Exception:
+                    voltage_value = None
+                voltage_classes[ref] = {'name': name, 'voltage': voltage_value}
         logging.info("Спарсено %d классов напряжения из '%s'", len(voltage_classes), voltage_file)
         return voltage_classes
     except FileNotFoundError:
@@ -56,7 +60,7 @@ def parse_voltage_classes(voltage_file):
         return {}
 
 # Основная функция для обработки XML и создания GeoJSON
-def process_xml_to_geojson(input_file, voltage_file='Классы напряжения.xml', output_file='output.geojson', log_file='missing_coordinates.log'):
+def process_xml_to_geojson(input_file, voltage_file='Классы_напряжения.xml', output_file='output.geojson', log_file='missing_coordinates.log'):
     # Парсинг классов напряжения
     voltage_classes = parse_voltage_classes(voltage_file)
 
@@ -160,10 +164,12 @@ def process_xml_to_geojson(input_file, voltage_file='Классы напряже
             "responsible": get_text(obj, 'Ответственный'),
             "relations": relations if relations is not None else []
         }
-        voltage_ref = get_text(obj, 'КлассНапряжения')
-        if voltage_ref in voltage_classes:
-            properties["voltage"] = voltage_classes[voltage_ref]['voltage']
-            properties["voltageclass"] = voltage_classes[voltage_ref]['name']
+        voltage_id = get_text(obj, 'КлассНапряжения')
+        properties["voltage_id"] = voltage_id
+        if voltage_id and voltage_id in voltage_classes:
+            properties["voltage"] = voltage_classes[voltage_id].get('voltage')
+        else:
+            properties["voltage"] = None
         return properties
 
     # Опоры (с пустым relations)
