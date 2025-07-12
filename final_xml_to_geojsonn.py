@@ -106,12 +106,14 @@ def process_xml_to_geojson(input_file, voltage_file='Классы_напряже
 
     # Фильтрация валидных объектов
     valid_supports = set()
+    invalid_supports = set()
     missing_coords_supports = []
     for opora_ref, opora_obj in opora_objects.items():
         coords = extract_coordinates(opora_obj.find('СтатическиеХарактеристики'))
         if coords and all(coords):
             valid_supports.add(opora_ref)
         else:
+            invalid_supports.add(opora_ref)
             opora_name = get_text(opora_obj, 'Description')
             missing_coords_supports.append((opora_ref, opora_name))
     logging.info("Найдено %d валидных опор с координатами", len(valid_supports))
@@ -124,6 +126,7 @@ def process_xml_to_geojson(input_file, voltage_file='Классы_напряже
 
     # Валидные пролеты
     valid_spans = set()
+    invalid_spans = set()
     for ref, prolets in prolet_objects.items():
         for prolet in prolets:
             prolet_ref = get_text(prolet, 'Ref')
@@ -131,6 +134,9 @@ def process_xml_to_geojson(input_file, voltage_file='Классы_напряже
             kon_opora_ref = get_text(prolet, 'КонечнаяОпора')
             if nach_opora_ref in valid_supports and kon_opora_ref in valid_supports:
                 valid_spans.add(prolet_ref)
+            else:
+                invalid_spans.add(prolet_ref)
+    logging.info("Найдено %d невалидных пролетов", len(invalid_spans))
     logging.info("Найдено %d валидных пролетов", len(valid_spans))
 
     # Валидные участки
@@ -182,6 +188,17 @@ def process_xml_to_geojson(input_file, voltage_file='Классы_напряже
             "geometry": {"type": "Point", "coordinates": [coords[1], coords[0]]}
         })
 
+
+    for opora_ref in invalid_supports:
+        opora_obj = opora_objects[opora_ref]
+        features.append({
+            "type": "Feature",
+            "properties": get_properties(opora_obj, "pylons", opora_ref),
+            "geometry": None,
+            "warning": "Опора без координат"
+        })
+
+
     # Пролеты (с relations на опоры)
     for uchastok_ref, prolets in prolet_objects.items():
         for prolet in prolets:
@@ -207,6 +224,29 @@ def process_xml_to_geojson(input_file, voltage_file='Классы_напряже
                     "coordinates": [[nach_coords[1], nach_coords[0]], [kon_coords[1], kon_coords[0]]]
                 }
             })
+
+    # Пролеты без координат
+    # all_prolets_by_ref = {get_text(prolet, 'Ref'): prolet for prolets in prolet_objects.values() for prolet in prolets}
+
+    # for prolet_ref in invalid_spans:
+    #     prolet_obj = all_prolets_by_ref[prolet_ref]
+    #     nach_opora_ref = get_text(prolet_obj, 'НачальнаяОпора')
+    #     kon_opora_ref = get_text(prolet_obj, 'КонечнаяОпора')
+    #     if nach_opora_ref in invalid_supports and kon_opora_ref in invalid_supports:
+    #         warning = "Отстутствуют координаты опор {} и {}".format(nach_opora_ref, kon_opora_ref)
+    #     elif nach_opora_ref in invalid_supports:
+    #         warning = "Отстутствуют координаты начальной опоры {}".format(nach_opora_ref)
+    #     elif kon_opora_ref in invalid_supports:
+    #         warning = "Отстутствуют координаты конечной опоры {}".format(kon_opora_ref)
+    #     else:
+    #         warning = "Неизвестная ошибка"
+    #     features.append({
+    #         "type": "Feature",
+    #         "properties": get_properties(prolet_obj, "span", prolet_ref),
+    #         "geometry": None,
+    #         "warning": warning
+    #     })
+
 
     # Участки (с relations на пролеты)
     for lep_guid, uchastki in uchastok_objects.items():
