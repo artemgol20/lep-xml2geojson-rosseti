@@ -4,6 +4,7 @@ import L from "leaflet";
 import { loadGeojson } from "./geojson";
 import MarkerClusterGroup from '@changey/react-leaflet-markercluster';
 import 'leaflet/dist/leaflet.css';
+import { HeatmapLayer } from 'react-leaflet-heatmap-layer-v3';
 
 // Иконка для опор
 const pylonIcon = new L.Icon({
@@ -108,6 +109,16 @@ export default function MapView() {
         ))}
         {/* Перемещение к объекту по flyTo */}
         {flyTo && <FlyTo position={flyTo} />}
+        <HeatmapLayer
+          points={pylons.map(f => ({
+            lat: f.geometry.coordinates[1],
+            lng: f.geometry.coordinates[0],
+            value: 1
+          }))}
+          longitudeExtractor={m => m.lng}
+          latitudeExtractor={m => m.lat}
+          intensityExtractor={m => m.value}
+        />
       </MapContainer>
     </div>
   );
