@@ -167,8 +167,12 @@ def process_xml_to_geojson(input_file, voltage_file='Классы_напряже
             "IdDZO": get_text(obj, 'КодОбъекта'),
             "name": get_text(obj, 'Description'),
             "filial": get_text(obj, 'Филиал'),
+            
             "responsible": get_text(obj, 'Ответственный'),
-            "relations": relations if relations is not None else []
+            
+            "system": {
+                "relations": relations if relations is not None else []    
+            }
         }
         voltage_id = get_text(obj, 'КлассНапряжения')
         properties["voltage_id"] = voltage_id
