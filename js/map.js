@@ -5,13 +5,14 @@ let markers = null;
 let geojsonData = null;
 let voltageData = [];
 let filialData = [];
+let markerCluster = null;
 
 export function initMap() {
     mapInstance = L.map('map').setView([53.169245, 43.982288], 10);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© OpenStreetMap contributors'
     }).addTo(mapInstance);
-    markers = L.geoJSON(null).addTo(mapInstance);
+    // markers и кластер инициализируются только после загрузки данных
     return mapInstance;
 }
 
@@ -45,16 +46,24 @@ export function getFilialData(data) {
 export function updateMap(map = mapInstance, data = geojsonData, _voltageList, filialList = filialData) {
     const selectedFilial = document.getElementById('filialFilter').value;
 
-    markers.clearLayers();
+    // Очищаем старый кластер, если он уже есть
+    if (markerCluster) {
+        markerCluster.clearLayers();
+        map.removeLayer(markerCluster);
+        markerCluster = null;
+    }
 
-    markers = L.geoJSON(data, {
+    // Если данных нет — ничего не делаем
+    if (!data) return;
+
+    markerCluster = L.markerClusterGroup();
+    const geoJsonLayer = L.geoJSON(data, {
         filter: feature => {
             if (!feature.properties) return false;
             return (selectedFilial === 'all' || feature.properties.filial === selectedFilial);
         },
         onEachFeature: function(feature, layer) {
             if (!feature.properties) return;
-
             layer.bindPopup(`
                 <b>${feature.properties.name || 'Unknown'}</b><br>
                 ID: ${feature.properties.IdDZO || 'N/A'}<br>
@@ -64,10 +73,13 @@ export function updateMap(map = mapInstance, data = geojsonData, _voltageList, f
                 <button data-ref="${feature.properties.ref}" class="more-info-btn bg-blue-500 text-white px-2 py-1 mt-2 rounded">More Info</button>
             `);
         }
-    }).addTo(map);
+    });
+    markerCluster.addLayer(geoJsonLayer);
+    map.addLayer(markerCluster);
+    markers = markerCluster;
 
-    if (markers.getBounds().isValid()) {
-        map.fitBounds(markers.getBounds());
+    if (geoJsonLayer.getBounds().isValid()) {
+        map.fitBounds(geoJsonLayer.getBounds());
     }
 
     map.on('popupopen', function (e) {

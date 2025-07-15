@@ -7,52 +7,89 @@ export function updateGraph(geojsonData) {
         .append('svg')
         .attr('width', width)
         .attr('height', height);
+
+    // Собираем все существующие ref
+    const allRefs = new Set(
+        geojsonData.features
+            .filter(f => f.properties && f.properties.ref)
+            .map(f => f.properties.ref)
+    );
+
+    // Узлы: все объекты с ref
     const nodes = geojsonData.features
-        .filter(f => f.properties)
+        .filter(f => f.properties && f.properties.ref)
         .map(f => ({
             id: f.properties.ref,
-            name: f.properties.name || 'Unknown',
-            type: 'pylon'
+            name: f.properties.name || f.properties.ref || 'Unknown',
+            type: f.properties.type || 'unknown',
         }));
-    const links = geojsonData.features
-        .filter(f => f.properties && f.properties.system && Array.isArray(f.properties.system.relations))
-        .flatMap(f =>
-            f.properties.system.relations.map(r => ({
-                source: f.properties.ref,
-                target: r.id
-            }))
-        );
-    const relationNodes = geojsonData.features
-        .filter(f => f.properties && f.properties.system && Array.isArray(f.properties.system.relations))
-        .flatMap(f =>
-            f.properties.system.relations.map(r => ({
-                id: r.id,
-                name: r.id.slice(0, 8) + '...',
-                type: r.type === 'parameter' ? 'parameter' : 'tech_place'
-            }))
-        );
-    nodes.push(...uniqueById(relationNodes));
+
+    let links = [];
+
+    // 1. Для каждого span ищем все pylon, которые на него ссылаются, и добавляем связь pylon -> span
+    geojsonData.features.forEach(span => {
+        if (!span.properties || span.properties.type !== 'span' || !span.properties.ref) return;
+        const spanRef = span.properties.ref;
+        geojsonData.features.forEach(pylon => {
+            if (!pylon.properties || pylon.properties.type !== 'pylon' || !pylon.properties.system || !Array.isArray(pylon.properties.system.relations)) return;
+            // pylon должен ссылаться на этот span
+            if (pylon.properties.system.relations.some(r => (r.id || r.objectId) === spanRef)) {
+                if (allRefs.has(pylon.properties.ref) && allRefs.has(spanRef)) {
+                    links.push({ source: pylon.properties.ref, target: spanRef });
+                }
+            }
+        });
+    });
+
+    // 2. Для каждого lines ищем все span, на которые он ссылается, и добавляем связь span -> lines
+    geojsonData.features.forEach(lines => {
+        if (!lines.properties || (lines.properties.type !== 'lines' && lines.properties.type !== 'fulllines') || !lines.properties.ref || !lines.properties.system || !Array.isArray(lines.properties.system.relations)) return;
+        const linesRef = lines.properties.ref;
+        lines.properties.system.relations.forEach(r => {
+            const spanRef = r.id || r.objectId;
+            // Только если span реально существует
+            const spanFeature = geojsonData.features.find(f => f.properties && f.properties.type === 'span' && f.properties.ref === spanRef);
+            if (spanFeature && allRefs.has(spanRef) && allRefs.has(linesRef)) {
+                links.push({ source: spanRef, target: linesRef });
+            }
+        });
+    });
+
+    // D3 force layout
     const simulation = d3.forceSimulation(nodes)
         .force('link', d3.forceLink(links).id(d => d.id).distance(100))
         .force('charge', d3.forceManyBody().strength(-100))
         .force('center', d3.forceCenter(width / 2, height / 2));
+
     const link = svg.append('g')
         .selectAll('line')
         .data(links)
         .enter().append('line')
         .attr('stroke', '#999')
         .attr('stroke-opacity', 0.6);
+
     const node = svg.append('g')
         .selectAll('circle')
         .data(nodes)
         .enter().append('circle')
-        .attr('r', 5)
-        .attr('fill', d => d.type === 'pylon' ? '#ff0000' : d.type === 'parameter' ? '#00ff00' : '#0000ff')
+        .attr('r', 7)
+        .attr('fill', d => d.type === 'pylon' ? '#ff0000' : d.type === 'span' ? '#00ff00' : d.type === 'lines' ? '#0000ff' : '#888888')
+        .style('cursor', 'pointer')
         .call(d3.drag()
             .on('start', dragstarted)
             .on('drag', dragged)
-            .on('end', dragended));
+            .on('end', dragended))
+        .on('click', function(event, d) {
+            // Находим feature по ref
+            const feature = geojsonData.features.find(f => f.properties && f.properties.ref === d.id);
+            if (feature) {
+                // Диспатчим show-detail для показа модального окна
+                window.dispatchEvent(new CustomEvent('show-detail', { detail: feature }));
+            }
+        });
+
     node.append('title').text(d => d.name);
+
     simulation.on('tick', () => {
         link
             .attr('x1', d => d.source.x)
@@ -63,6 +100,7 @@ export function updateGraph(geojsonData) {
             .attr('cx', d => d.x)
             .attr('cy', d => d.y);
     });
+
     function dragstarted(event, d) {
         if (!event.active) simulation.alphaTarget(0.3).restart();
         d.fx = d.x;
