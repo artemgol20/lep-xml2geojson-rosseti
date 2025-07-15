@@ -1,18 +1,34 @@
-import { initMap, updateMap, setGeojsonData, getFilialData } from './map.js';
+import { initMap, updateMap, setGeojsonData } from './map.js';
 import { updateGraph } from './graph.js';
 import { setupFilters } from './filters.js';
 import { setupFileLoader } from './fileLoader.js';
 
 const map = initMap();
 let geojsonData = null;
-let filialData = [];
+
+function getFilialData(data) {
+    const rawFilialData = (data || geojsonData).features
+        .filter(f => f.properties && f.properties.filial)
+        .map(f => ({
+            id: f.properties.filial,
+            name: `Filial ${f.properties.filial.slice(0, 8)}...`
+        }));
+    // Уникальные по id
+    const seen = new Set();
+    return rawFilialData.filter(item => {
+        if (!item.id) return false;
+        if (seen.has(item.id)) return false;
+        seen.add(item.id);
+        return true;
+    });
+}
 
 function onGeojsonLoaded(data) {
     geojsonData = data;
     setGeojsonData(geojsonData);
-    filialData = getFilialData(geojsonData);
-    setupFilters(undefined, filialData, () => updateMap(map, geojsonData, undefined, filialData));
-    updateMap(map, geojsonData, undefined, filialData);
+    const filialData = getFilialData(geojsonData);
+    setupFilters(filialData, () => updateMap(map, geojsonData, filialData));
+    updateMap(map, geojsonData, filialData);
     updateGraph(geojsonData);
 }
 
@@ -31,119 +47,201 @@ function showDetailModal(feature) {
     title.textContent = `Details for ${feature.properties.name || 'Unknown'}`;
     content.innerHTML = '<pre>' + JSON.stringify(feature.properties, null, 2) + '</pre>';
 
-    let lineName = 'ЛЭП';
-    const pylonRef = feature.properties.ref;
-    const spanFeatures = geojsonData.features.filter(f => f.properties && f.properties.type === 'span' && Array.isArray(f.properties.system?.relations) && f.properties.system.relations.some(r => r.objectId === pylonRef));
-    let foundLine = null;
-    for (const span of spanFeatures) {
-        foundLine = geojsonData.features.find(f => f.properties && (f.properties.type === 'lines' || f.properties.type === 'fulllines') && Array.isArray(f.properties.system?.relations) && f.properties.system.relations.some(r => r.objectId === span.properties.ref));
-        if (foundLine) break;
-    }
-    if (foundLine) {
-        lineName = foundLine.properties.name || foundLine.properties.ref;
-    }
-
-    const ref = feature.properties.ref || 'unknown_ref';
-    let pylonName = feature.properties.name || ref;
-    const relations = feature?.properties?.system?.relations || [];
-    let mermaidDef = `graph TD\n`;
-    if (feature.properties.type === 'span') {
-        // Для span: строим диаграмму из двух опор и этой пролётки
-        const pylonRefs = (feature.properties.system?.relations || []).map(r => r.id || r.objectId).filter(Boolean);
-        const spanRef = feature.properties.ref;
-        const spanName = feature.properties.name || spanRef;
-        pylonRefs.forEach(pylonRef => {
-            const pylonFeature = geojsonData.features.find(f =>
-                f.properties &&
-                f.properties.ref === pylonRef &&
-                (f.properties.type === 'pylon' || f.properties.type === 'pylons')
-            );
-            const pylonLabel = pylonFeature && pylonFeature.properties.name
-                ? pylonFeature.properties.name
-                : pylonRef;
-            mermaidDef += `    ${pylonRef}[\"${pylonLabel}\"] --> ${spanRef}[\"${spanName}\"]\n`;
-        });
-        // Добавим связь span -> line (если есть)
-        let foundLine = geojsonData.features.find(f =>
+    // Вспомогательные функции для поиска родителей и детей
+    function findParentLines(spanRef) {
+        return geojsonData.features.filter(f =>
             f.properties &&
             (f.properties.type === 'lines' || f.properties.type === 'fulllines') &&
             Array.isArray(f.properties.system?.relations) &&
             f.properties.system.relations.some(r => (r.id || r.objectId) === spanRef)
         );
-        if (foundLine) {
-            lineName = foundLine.properties.name || foundLine.properties.ref;
-            mermaidDef += `    ${spanRef}[\"${spanName}\"] --> line[\"${lineName}\"]\n`;
-        }
-    } else if (feature.properties.type === 'pylon' || feature.properties.type === 'pylons') {
-        // Для pylon: строим диаграмму "опора -> пролетки -> ЛЭП"
-        const pylonRef = feature.properties.ref;
-        const pylonName = feature.properties.name || pylonRef;
-        // Найти все span, которые содержат этот pylon в своих relations
-        const spans = geojsonData.features.filter(f =>
+    }
+    function findParentFullLines(lineRef) {
+        return geojsonData.features.filter(f =>
             f.properties &&
-            (f.properties.type === 'span' || f.properties.type === 'spans') &&
+            f.properties.type === 'fulllines' &&
+            Array.isArray(f.properties.system?.relations) &&
+            f.properties.system.relations.some(r => (r.id || r.objectId) === lineRef)
+        );
+    }
+    function findSpansOfLine(lineRef) {
+        return geojsonData.features.filter(f =>
+            f.properties &&
+            f.properties.type === 'span' &&
+            Array.isArray(f.properties.system?.relations) &&
+            f.properties.system.relations.some(r => (r.id || r.objectId) === lineRef)
+        );
+    }
+    function findSpansOfFullLine(fullLineRef) {
+        // Для fulllines ищем lines, а потом их spans
+        const lines = geojsonData.features.filter(f =>
+            f.properties &&
+            f.properties.type === 'lines' &&
+            Array.isArray(f.properties.system?.relations) &&
+            f.properties.system.relations.some(r => (r.id || r.objectId) === fullLineRef)
+        );
+        let spans = [];
+        lines.forEach(line => {
+            spans = spans.concat(findSpansOfLine(line.properties.ref));
+        });
+        return spans;
+    }
+    function findPylonsOfSpan(spanRef) {
+        const span = geojsonData.features.find(f => f.properties && f.properties.ref === spanRef && f.properties.type === 'span');
+        if (!span) return [];
+        return (span.properties.system?.relations || [])
+            .map(r => geojsonData.features.find(f => f.properties && f.properties.ref === (r.id || r.objectId) && (f.properties.type === 'pylon' || f.properties.type === 'pylons')))
+            .filter(Boolean);
+    }
+    function findSpansOfPylon(pylonRef) {
+        return geojsonData.features.filter(f =>
+            f.properties &&
+            f.properties.type === 'span' &&
             Array.isArray(f.properties.system?.relations) &&
             f.properties.system.relations.some(r => (r.id || r.objectId) === pylonRef)
         );
+    }
+
+    // Построение диаграммы
+    let mermaidDef = `graph TD\n`;
+    const type = feature.properties.type;
+    const ref = feature.properties.ref;
+    const name = feature.properties.name || ref;
+    const addedLinks = new Set();
+    function addLink(from, to, fromName, toName) {
+        const key = `${from}->${to}`;
+        if (!addedLinks.has(key)) {
+            mermaidDef += `    ${from}[\"${fromName}\"] --> ${to}[\"${toName}\"]\n`;
+            addedLinks.add(key);
+        }
+    }
+
+    if (type === 'pylon' || type === 'pylons') {
+        // Для опоры: путь от fulllines -> lines -> span -> pylon
+        const spans = findSpansOfPylon(ref);
         spans.forEach(span => {
             const spanRef = span.properties.ref;
             const spanName = span.properties.name || spanRef;
-            // Найти ЛЭП, который содержит эту span
-            let foundLine = geojsonData.features.find(f =>
-                f.properties &&
-                (f.properties.type === 'lines' || f.properties.type === 'fulllines') &&
-                Array.isArray(f.properties.system?.relations) &&
-                f.properties.system.relations.some(r => (r.id || r.objectId) === spanRef)
-            );
-            let lineName = foundLine ? (foundLine.properties.name || foundLine.properties.ref) : 'ЛЭП';
-            mermaidDef += `    ${pylonRef}[\"${pylonName}\"] --> ${spanRef}[\"${spanName}\"]\n`;
-            mermaidDef += `    ${spanRef}[\"${spanName}\"] --> line[\"${lineName}\"]\n`;
+            const parentLines = findParentLines(spanRef);
+            parentLines.forEach(line => {
+                const lineRef = line.properties.ref;
+                const lineName = line.properties.name || lineRef;
+                const parentFullLines = findParentFullLines(lineRef);
+                if (parentFullLines.length > 0) {
+                    parentFullLines.forEach(fullLine => {
+                        const fullLineRef = fullLine.properties.ref;
+                        const fullLineName = fullLine.properties.name || fullLineRef;
+                        addLink(fullLineRef, lineRef, fullLineName, lineName);
+                    });
+                }
+                addLink(lineRef, spanRef, lineName, spanName);
+            });
+            addLink(spanRef, ref, spanName, name);
+        });
+        if (spans.length === 0) {
+            mermaidDef += `    ${ref}[\"${name}\"]\n`;
+        }
+    } else if (type === 'span') {
+        // Для пролета: путь от fulllines -> lines -> span, плюс опоры
+        const parentLines = findParentLines(ref);
+        parentLines.forEach(line => {
+            const lineRef = line.properties.ref;
+            const lineName = line.properties.name || lineRef;
+            const parentFullLines = findParentFullLines(lineRef);
+            if (parentFullLines.length > 0) {
+                parentFullLines.forEach(fullLine => {
+                    const fullLineRef = fullLine.properties.ref;
+                    const fullLineName = fullLine.properties.name || fullLineRef;
+                    addLink(fullLineRef, lineRef, fullLineName, lineName);
+                });
+            }
+            addLink(lineRef, ref, lineName, name);
+        });
+        // Опоры
+        const pylons = findPylonsOfSpan(ref);
+        pylons.forEach(pylon => {
+            const pylonRef = pylon.properties.ref;
+            const pylonName = pylon.properties.name || pylonRef;
+            addLink(ref, pylonRef, name, pylonName);
+        });
+    } else if (type === 'lines') {
+        // Для lines: путь от fulllines -> lines, плюс все spans
+        const parentFullLines = findParentFullLines(ref);
+        parentFullLines.forEach(fullLine => {
+            const fullLineRef = fullLine.properties.ref;
+            const fullLineName = fullLine.properties.name || fullLineRef;
+            addLink(fullLineRef, ref, fullLineName, name);
+        });
+        const spans = findSpansOfLine(ref);
+        spans.forEach(span => {
+            const spanRef = span.properties.ref;
+            const spanName = span.properties.name || spanRef;
+            addLink(ref, spanRef, name, spanName);
+        });
+    } else if (type === 'fulllines') {
+        // Для fulllines: все lines и их spans
+        const lines = geojsonData.features.filter(f =>
+            f.properties &&
+            f.properties.type === 'lines' &&
+            Array.isArray(f.properties.system?.relations) &&
+            f.properties.system.relations.some(r => (r.id || r.objectId) === ref)
+        );
+        lines.forEach(line => {
+            const lineRef = line.properties.ref;
+            const lineName = line.properties.name || lineRef;
+            addLink(ref, lineRef, name, lineName);
+            const spans = findSpansOfLine(lineRef);
+            spans.forEach(span => {
+                const spanRef = span.properties.ref;
+                const spanName = span.properties.name || spanRef;
+                addLink(lineRef, spanRef, lineName, spanName);
+                const pylons = findPylonsOfSpan(spanRef);
+                pylons.forEach(pylon => {
+                    const pylonRef = pylon.properties.ref;
+                    const pylonName = pylon.properties.name || pylonRef;
+                    addLink(spanRef, pylonRef, spanName, pylonName);
+                });
+            });
         });
     } else {
-        // Старый код для остальных случаев
-        relations.forEach((rel, i) => {
-            const relId = rel.id || rel.objectId || `rel${i}`;
-            let spanName = relId;
-            const spanFeature = geojsonData.features.find(f => f.properties && f.properties.ref === relId && f.properties.type === 'span');
-            if (spanFeature) {
-                spanName = spanFeature.properties.name || relId;
-            }
-            // Найти pylons, на которые ссылается span
-            let pylonRefs = [];
-            if (spanFeature && Array.isArray(spanFeature.properties.system?.relations)) {
-                pylonRefs = spanFeature.properties.system.relations.map(r => r.id || r.objectId).filter(Boolean);
-            }
-            // Для каждого pylon добавить связь
-            if (pylonRefs.length > 0) {
-                pylonRefs.forEach(pylonRef => {
-                    const pylonFeature = geojsonData.features.find(f =>
-                        f.properties &&
-                        f.properties.ref === pylonRef &&
-                        (f.properties.type === 'pylon' || f.properties.type === 'pylons')
-                    );
-                    const pylonLabel = pylonFeature && pylonFeature.properties.name
-                        ? pylonFeature.properties.name
-                        : pylonRef;
-                    mermaidDef += `    ${pylonRef}[\"${pylonLabel}\"] --> ${relId}[\"${spanName}\"]\n`;
-                });
-                mermaidDef += `    ${relId}[\"${spanName}\"] --> line[\"${lineName}\"]\n`;
-            } else {
-                // Если нет pylons, как раньше
-                mermaidDef += `    ${ref}[\"${pylonName}\"] --> ${relId}[\"${spanName}\"]\n`;
-                mermaidDef += `    ${relId}[\"${spanName}\"] --> line[\"${lineName}\"]\n`;
-            }
-        });
-        if (relations.length === 0) {
-            mermaidDef += `    ${ref}[\"${pylonName}\"] --> line[\"${lineName}\"]\n`;
-        }
+        // Если тип неизвестен — просто показать имя
+        mermaidDef += `    ${ref}[\"${name}\"]\n`;
     }
-    chart.innerHTML = `<div style=\"width:600px; height:400px; display:flex; justify-content:center; align-items:center; margin:auto;\"><div class=\"mermaid\" style=\"width:100%; height:100%;\">${mermaidDef}</div></div>`;
+
+    chart.innerHTML = `<div class=\"mermaid\" style=\"width:100%; height:100%; max-width:600px;\">${mermaidDef}</div>`;
+    // Добавим стили для .mermaid, чтобы текст был читаемым и диаграмма всегда растягивалась
+    const mermaidStyle = document.createElement('style');
+    mermaidStyle.innerHTML = `
+        #modalChart .mermaid svg {
+            width: 100% !important;
+            height: 100% !important;
+        }
+        #modalChart .mermaid * {
+            font-size: 16px !important;
+            font-family: 'Inter', 'Arial', sans-serif !important;
+        }
+        #modalChart .mermaid .nodeLabel {
+            font-size: 16px !important;
+            font-family: 'Inter', 'Arial', sans-serif !important;
+            overflow: hidden !important;
+            text-overflow: ellipsis !important;
+        }
+        #modalChart .mermaid .label {
+            font-size: 16px !important;
+            font-family: 'Inter', 'Arial', sans-serif !important;
+            overflow: hidden !important;
+            text-overflow: ellipsis !important;
+        }
+    `;
+    // Удаляем старые стили, если есть
+    const oldStyle = document.getElementById('mermaid-modal-style');
+    if (oldStyle) oldStyle.remove();
+    mermaidStyle.id = 'mermaid-modal-style';
+    document.head.appendChild(mermaidStyle);
     chart.style.display = 'block';
     if (window.mermaid) {
         window.mermaid.run();
     }
-    // Удаляю добавление обработчиков клика на узлы диаграммы
-    // (блок setTimeout с обработчиками клика полностью убран)
     modal.classList.remove('hidden');
 }
 

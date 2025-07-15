@@ -43,7 +43,7 @@ export function getFilialData(data) {
     return uniqueById(rawFilialData);
 }
 
-export function updateMap(map = mapInstance, data = geojsonData, _voltageList, filialList = filialData) {
+export function updateMap(map = mapInstance, data = geojsonData, filialList = []) {
     const selectedFilial = document.getElementById('filialFilter').value;
 
     // Очищаем старый кластер, если он уже есть
@@ -56,12 +56,13 @@ export function updateMap(map = mapInstance, data = geojsonData, _voltageList, f
     // Если данных нет — ничего не делаем
     if (!data) return;
 
+    let filteredFeatures = data.features;
+    if (selectedFilial !== 'all') {
+        filteredFeatures = filteredFeatures.filter(f => f.properties && f.properties.filial === selectedFilial);
+    }
+
     markerCluster = L.markerClusterGroup();
-    const geoJsonLayer = L.geoJSON(data, {
-        filter: feature => {
-            if (!feature.properties) return false;
-            return (selectedFilial === 'all' || feature.properties.filial === selectedFilial);
-        },
+    const geoJsonLayer = L.geoJSON({ ...data, features: filteredFeatures }, {
         onEachFeature: function(feature, layer) {
             if (!feature.properties) return;
             layer.bindPopup(`
@@ -69,7 +70,6 @@ export function updateMap(map = mapInstance, data = geojsonData, _voltageList, f
                 ID: ${feature.properties.IdDZO || 'N/A'}<br>
                 Ref: ${feature.properties.ref || 'N/A'}<br>
                 Voltage: ${feature.properties.voltage || 'N/A'} кВ<br>
-                Filial: ${filialList.find(f => f.id === feature.properties.filial)?.name || feature.properties.filial || 'N/A'}<br>
                 <button data-ref="${feature.properties.ref}" class="more-info-btn bg-blue-500 text-white px-2 py-1 mt-2 rounded">More Info</button>
             `);
         }

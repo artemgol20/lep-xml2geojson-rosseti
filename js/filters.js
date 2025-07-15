@@ -1,4 +1,4 @@
-export function setupFilters(_voltageData, filialData, onChange) {
+export function setupFilters(filialData, onChange) {
     const filialFilter = document.getElementById('filialFilter');
     if (filialFilter) {
         filialFilter.innerHTML = '<option value="all">All</option>';
