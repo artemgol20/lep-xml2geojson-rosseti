@@ -168,11 +168,8 @@ def process_xml_to_geojson(input_file, voltage_file='Классы_напряже
             "name": get_text(obj, 'Description'),
             "filial": get_text(obj, 'Филиал'),
             
-            "responsible": get_text(obj, 'Ответственный'),
+            "responsible": get_text(obj, 'Ответственный')          
             
-            "system": {
-                "relations": relations if relations is not None else []    
-            }
         }
         voltage_id = get_text(obj, 'КлассНапряжения')
         properties["voltage_id"] = voltage_id
@@ -189,6 +186,7 @@ def process_xml_to_geojson(input_file, voltage_file='Классы_напряже
         features.append({
             "type": "Feature",
             "properties": get_properties(opora_obj, "pylons", opora_ref),
+            "system": {"relations": []},
             "geometry": {"type": "Point", "coordinates": [coords[1], coords[0]]}
         })
 
@@ -200,6 +198,7 @@ def process_xml_to_geojson(input_file, voltage_file='Классы_напряже
             "properties": get_properties(opora_obj, "pylons", opora_ref),
             "geometry": None,
             "warning": "Опора без координат"
+
         })
 
 
@@ -223,6 +222,7 @@ def process_xml_to_geojson(input_file, voltage_file='Классы_напряже
             features.append({
                 "type": "Feature",
                 "properties": get_properties(prolet, "span", prolet_ref, relations),
+                "system": {"relations": relations if relations is not None else []},
                 "geometry": {
                     "type": "LineString",
                     "coordinates": [[nach_coords[1], nach_coords[0]], [kon_coords[1], kon_coords[0]]]
@@ -264,6 +264,7 @@ def process_xml_to_geojson(input_file, voltage_file='Классы_напряже
                 features.append({
                     "type": "Feature",
                     "properties": get_properties(uchastok, "lines", uchastok_ref, relations),
+                    "system": {"relations": relations if relations is not None else []},
                     "geometry": None
                 })
 
