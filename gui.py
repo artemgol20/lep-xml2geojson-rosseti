@@ -9,6 +9,8 @@ import logging
 
 from final_xml_to_geojsonn import process_xml_to_geojson
 
+logging.raiseExceptions = False
+
 class RedirectText(object):
     def __init__(self, text_widget):
         self.output = text_widget
@@ -29,10 +31,13 @@ class TextHandler(logging.Handler):
 
     def emit(self, record):
         msg = self.format(record)
-        self.text_widget.configure(state='normal')
-        self.text_widget.insert(tk.END, msg + '\n')
-        self.text_widget.see(tk.END)
-        self.text_widget.configure(state='disabled')
+        try:
+            self.text_widget.configure(state='normal')
+            self.text_widget.insert(tk.END, msg + '\n')
+            self.text_widget.see(tk.END)
+            self.text_widget.configure(state='disabled')
+        except Exception:
+            pass  # Виджет уже уничтожен
 
 class GeojsonGUI(tk.Tk):
     def __init__(self):
@@ -104,6 +109,7 @@ class GeojsonGUI(tk.Tk):
         # Оставляем перенаправление только для print (если нужно)
         sys.stdout = RedirectText(self.log_text)
         sys.stderr = RedirectText(self.log_text)
+        self.protocol("WM_DELETE_WINDOW", self.on_close)
 
     def browse_input(self):
         file = filedialog.askopenfilename(filetypes=[("XML files", "*.xml"), ("All files", "*.*")])
@@ -144,6 +150,10 @@ class GeojsonGUI(tk.Tk):
         finally:
             self.progress.stop()
             self.run_btn.config(state='normal')
+
+    def on_close(self):
+        logging.getLogger().removeHandler(self.text_handler)
+        self.destroy()
 
 if __name__ == '__main__':
     app = GeojsonGUI()

@@ -2,3 +2,10 @@
 /parse_lep_to_geojson_.py
 /penis.py
 /website_
+__pycache__/
+build/
+dist/
+*.spec
+*.pyc
+*.pyo
+*.exe
