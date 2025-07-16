@@ -229,28 +229,6 @@ def process_xml_to_geojson(input_file, voltage_file='Классы_напряже
                 }
             })
 
-    # Пролеты без координат
-    # all_prolets_by_ref = {get_text(prolet, 'Ref'): prolet for prolets in prolet_objects.values() for prolet in prolets}
-
-    # for prolet_ref in invalid_spans:
-    #     prolet_obj = all_prolets_by_ref[prolet_ref]
-    #     nach_opora_ref = get_text(prolet_obj, 'НачальнаяОпора')
-    #     kon_opora_ref = get_text(prolet_obj, 'КонечнаяОпора')
-    #     if nach_opora_ref in invalid_supports and kon_opora_ref in invalid_supports:
-    #         warning = "Отстутствуют координаты опор {} и {}".format(nach_opora_ref, kon_opora_ref)
-    #     elif nach_opora_ref in invalid_supports:
-    #         warning = "Отстутствуют координаты начальной опоры {}".format(nach_opora_ref)
-    #     elif kon_opora_ref in invalid_supports:
-    #         warning = "Отстутствуют координаты конечной опоры {}".format(kon_opora_ref)
-    #     else:
-    #         warning = "Неизвестная ошибка"
-    #     features.append({
-    #         "type": "Feature",
-    #         "properties": get_properties(prolet_obj, "span", prolet_ref),
-    #         "geometry": None,
-    #         "warning": warning
-    #     })
-
 
     # Участки (с relations на пролеты)
     for lep_guid, uchastki in uchastok_objects.items():
@@ -278,6 +256,7 @@ def process_xml_to_geojson(input_file, voltage_file='Классы_напряже
             features.append({
                 "type": "Feature",
                 "properties": get_properties(lep_obj, "fulllines", lep_ref, relations),
+                "system": {"relations": relations if relations is not None else []},
                 "geometry": None
             })
 
