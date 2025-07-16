@@ -52,24 +52,24 @@ function showDetailModal(feature) {
         return geojsonData.features.filter(f =>
             f.properties &&
             (f.properties.type === 'lines' || f.properties.type === 'fulllines') &&
-            Array.isArray(f.properties.system?.relations) &&
-            f.properties.system.relations.some(r => (r.id || r.objectId) === spanRef)
+            Array.isArray(f.system?.relations) &&
+            f.system.relations.some(r => (r.id || r.objectId) === spanRef)
         );
     }
     function findParentFullLines(lineRef) {
         return geojsonData.features.filter(f =>
             f.properties &&
             f.properties.type === 'fulllines' &&
-            Array.isArray(f.properties.system?.relations) &&
-            f.properties.system.relations.some(r => (r.id || r.objectId) === lineRef)
+            Array.isArray(f.system?.relations) &&
+            f.system.relations.some(r => (r.id || r.objectId) === lineRef)
         );
     }
     function findSpansOfLine(lineRef) {
         return geojsonData.features.filter(f =>
             f.properties &&
             f.properties.type === 'span' &&
-            Array.isArray(f.properties.system?.relations) &&
-            f.properties.system.relations.some(r => (r.id || r.objectId) === lineRef)
+            Array.isArray(f.system?.relations) &&
+            f.system.relations.some(r => (r.id || r.objectId) === lineRef)
         );
     }
     function findSpansOfFullLine(fullLineRef) {
@@ -77,8 +77,8 @@ function showDetailModal(feature) {
         const lines = geojsonData.features.filter(f =>
             f.properties &&
             f.properties.type === 'lines' &&
-            Array.isArray(f.properties.system?.relations) &&
-            f.properties.system.relations.some(r => (r.id || r.objectId) === fullLineRef)
+            Array.isArray(f.system?.relations) &&
+            f.system.relations.some(r => (r.id || r.objectId) === fullLineRef)
         );
         let spans = [];
         lines.forEach(line => {
@@ -89,7 +89,7 @@ function showDetailModal(feature) {
     function findPylonsOfSpan(spanRef) {
         const span = geojsonData.features.find(f => f.properties && f.properties.ref === spanRef && f.properties.type === 'span');
         if (!span) return [];
-        return (span.properties.system?.relations || [])
+        return (span.system?.relations || [])
             .map(r => geojsonData.features.find(f => f.properties && f.properties.ref === (r.id || r.objectId) && (f.properties.type === 'pylon' || f.properties.type === 'pylons')))
             .filter(Boolean);
     }
@@ -97,8 +97,8 @@ function showDetailModal(feature) {
         return geojsonData.features.filter(f =>
             f.properties &&
             f.properties.type === 'span' &&
-            Array.isArray(f.properties.system?.relations) &&
-            f.properties.system.relations.some(r => (r.id || r.objectId) === pylonRef)
+            Array.isArray(f.system?.relations) &&
+            f.system.relations.some(r => (r.id || r.objectId) === pylonRef)
         );
     }
 
@@ -183,8 +183,8 @@ function showDetailModal(feature) {
         const lines = geojsonData.features.filter(f =>
             f.properties &&
             f.properties.type === 'lines' &&
-            Array.isArray(f.properties.system?.relations) &&
-            f.properties.system.relations.some(r => (r.id || r.objectId) === ref)
+            Array.isArray(f.system?.relations) &&
+            f.system.relations.some(r => (r.id || r.objectId) === ref)
         );
         lines.forEach(line => {
             const lineRef = line.properties.ref;
