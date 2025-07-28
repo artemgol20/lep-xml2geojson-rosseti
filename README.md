@@ -29,3 +29,7 @@
 - Основные файлы: `gui.py`, `final_xml_to_geojsonn.py`
 - Для сборки exe: `pip install pyinstaller` и `pyinstaller --onefile --noconsole gui.py`
 
+## Отчености
+- [Отчет по скрипту](https://docs.google.com/document/d/1QsnNjPqmaPNXoq2bWJq_hCrJC8RI5p8jEW2u3TjNkRY/edit?tab=t.0#heading=h.fwfh3j1kzutc)
+- [Отчет по сайту](https://docs.google.com/document/d/1x8hZD2z8UejIvBWcv4cQeP7jgpKX8Ke4m74Uz8WxrCw/edit?tab=t.0)
+- [Ссылка на сайт](https://artemgol20.github.io/lep-xml2geojson-rosseti/)
